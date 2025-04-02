@@ -1,0 +1,11 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" xmlns="http://www.w3.org/2000/svg">
+  <!-- Add document-themed background patterns -->
+  <defs>
+    <pattern id="documents" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+      <!-- Document icons and patterns -->
+      <path d="M20,20 L80,20 L80,80 L20,80 Z" fill="none" stroke="rgba(255,255,255,0.1)" />
+      <path d="M30,30 L70,30 M30,45 L70,45 M30,60 L70,60" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#documents)" />
+</svg> 

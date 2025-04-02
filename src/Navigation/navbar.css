@@ -1,0 +1,41 @@
+/* Navbar styles */
+
+/* Navigation container */
+.nav-bg-color {
+  @apply bg-white;
+}
+
+.nav-bg-color-buttons {
+  @apply bg-[#632e0f] text-white;
+}
+
+.nav-bg-hover-color-buttons {
+  @apply text-gray-900 hover:bg-[#8B4513] hover:text-white;
+}
+
+/* Sidebar styles */
+.sidebar {
+  @apply bg-gradient-to-b from-[#8B4513] via-[#632e0f] to-[#301607];
+}
+
+.sidebar-item {
+  @apply hover:bg-[#8B4513]/50 transition-colors;
+}
+
+.sidebar-item-active {
+  @apply bg-[#8B4513]/30;
+}
+
+/* Header styles */
+.header {
+  @apply bg-white border-b border-gray-200;
+}
+
+/* Profile dropdown */
+.profile-dropdown {
+  @apply hover:bg-[#8B4513]/10;
+}
+
+.dropdown-item {
+  @apply hover:bg-[#8B4513]/10 hover:text-[#632e0f];
+}

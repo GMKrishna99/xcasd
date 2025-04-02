@@ -1,0 +1,10 @@
+
+version: '3'
+services:
+  dealvisor-frontend-ui:
+    image: b2yinfy/dealvisor-frontend-ui:v1  # Use your custom image instead of plain nginx
+    container_name: dealvisor-frontend-ui
+    networks:
+      - dms-network
+    ports:
+      - "3011:3011"  # Expose only port 4020

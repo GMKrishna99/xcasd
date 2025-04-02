@@ -1,0 +1,33 @@
+// constants/permissions
+export const PERMISSIONS = {
+  // User Management
+  ADD_USER: 1,
+  EDIT_USER: 2,
+  DELETE_USER: 3,
+  VIEW_USERS: 4,
+
+  // Role Management
+  ADD_ROLE: 5,
+  EDIT_ROLE: 6,
+  DELETE_ROLE: 8,
+  VIEW_ROLE: 7,
+ 
+  //PROJEC TYPES Management
+  VIEW_PROJECT_TYPE:14,
+  ADD_PROJECT_TYPE:15,
+  EDIT_PROJECT_TYPE:16,
+  DELETE_PROJECT_TYPE:17,
+
+//Reference Management
+    VEIW_REFERENCES:21,
+    ADD_REFERENCES:18,
+    EDIT_REFERENCES:19,
+    DELETE_REFERENCES:20,
+  
+  // Menu Management
+  ACCESS_USERS: 10,
+  ACCESS_USERROLES: 11,
+  ACCESS_PROJECTTYPES:12,
+  ACCESS_DASHBOARD: 9,
+  ACCESS_REFERENCES:13,
+};
