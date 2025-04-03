@@ -3,7 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { DataContext } from "../../Context/DataContext";
 import axios from "axios";
 import LoadingAnimation from "../../Components/Loading/LoadingAnimation";
-import { PencilIcon, ChatBubbleLeftIcon, PhotoIcon } from "@heroicons/react/24/solid";
+import {
+  PencilIcon,
+  ChatBubbleLeftIcon,
+  PhotoIcon,
+} from "@heroicons/react/24/solid";
 import { v4 as uuidv4 } from "uuid";
 import {
   GET_DOCUMENT_API,
@@ -28,71 +32,26 @@ import {
 import { FaFileWord, FaFilePdf } from "react-icons/fa";
 import Draggable from "react-draggable";
 import AddApprovalPopup from "./ApprovalPopup";
-import SignatureModal from "./SignatureModal";
+import SignaturePad from "signature_pad";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from "docx";
 import mammoth from "mammoth";
-import SignaturePad from "signature_pad";
 import { FiDownload } from "react-icons/fi";
+
 // Initialize PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
-const DocumentsDetails = () => {
-  const { documentId } = useParams();
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [documentData, setDocumentData] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [signatureFields, setSignatureFields] = useState([]);
-  const [activeField, setActiveField] = useState(null);
-  const [numPages, setNumPages] = useState(null);
-  const [scale, setScale] = useState(1.0);
-  const [showSignatureModal, setShowSignatureModal] = useState(false);
-  const [signaturePad, setSignaturePad] = useState(null);
-  const [error, setError] = useState(null);
-  const signatureRef = useRef();
-  const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [signatures, setSignatures] = useState([]);
-  const [isPlacingSignature, setIsPlacingSignature] = useState(false);
-  const [currentSignature, setCurrentSignature] = useState(null);
-  const pdfContainerRef = useRef(null);
-  const [selectedSignature, setSelectedSignature] = useState(null);
-  const [fileType, setFileType] = useState(null);
-  const [documentComments, setDocumentComments] = useState([]);
-  const [showCommentModal, setShowCommentModal] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-  const [documentName, setDocumentName] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState(null);
-  const [selectedProjectType, setSelectedProjectType] = useState(null);
-  const [documentFile, setDocumentFile] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editableContent, setEditableContent] = useState("");
-  const [editingMode, setEditingMode] = useState(null); // 'text' or 'drawing'
-  const canvasRef = useRef(null);
-  const documentNo = documentData?.DocumentNo || ""; // Ensure it exists
-  const [signaturePosition, setSignaturePosition] = useState({
-    x: 100,
-    y: 100,
-  });
-  const documentContainerRef = useRef(null);
-  const [unsavedChanges, setUnsavedChanges] = useState(false);
-  const [tempSignatureData, setTempSignatureData] = useState(null);
-  const [tempSignatures, setTempSignatures] = useState([]);
-  const [modifiedDocument, setModifiedDocument] = useState(null);
-  const [editingSignature, setEditingSignature] = useState(null);
-  const [isMarkingPosition, setIsMarkingPosition] = useState(false);
-  const [markedPosition, setMarkedPosition] = useState(null);
-  const [showDialog, setShowDialog] = useState(false);
+const SignatureDialog = ({ showDialog, setShowDialog, onSaveSignature }) => {
   const [signatureType, setSignatureType] = useState("draw");
   const [textSignature, setTextSignature] = useState("");
-  const [fontSize, setFontSize] = useState(16);
-  const [fontColor, setFontColor] = useState("#000");
-  const [fontLoaded, setFontLoaded] = useState(false);
+  const [fontSize, setFontSize] = useState(24);
+  const [fontColor, setFontColor] = useState("#000000");
   const [signatureFont, setSignatureFont] = useState("cursive");
+  const [signatureImage, setSignatureImage] = useState(null);
+  const canvasRef = useRef(null);
+  const signaturePadRef = useRef(null);
   const fileInputRef = useRef(null);
+
   const colorOptions = [
     { value: "#000000", label: "Black" },
     { value: "#FF0000", label: "Red" },
@@ -100,17 +59,326 @@ const DocumentsDetails = () => {
     { value: "#008000", label: "Green" },
     { value: "#800080", label: "Purple" },
   ];
-  function handleImageUpload(event) {
-    // Handler for uploading signature image
-  }
 
-  function clearSignature() {
-    // Handler for clearing signature
-  }
+  const fontOptions = [
+    { value: "cursive", label: "Cursive" },
+    { value: "Arial", label: "Arial" },
+    { value: "Times New Roman", label: "Times New Roman" },
+    { value: "Courier New", label: "Courier" },
+    { value: "Georgia", label: "Georgia" },
+  ];
 
-  function saveSignature() {
-    // Handler for saving signature
-  }
+  useEffect(() => {
+    if (showDialog && signatureType === "draw" && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const signaturePad = new SignaturePad(canvas, {
+        backgroundColor: "rgba(255, 255, 255, 0)",
+        penColor: "rgb(0, 0, 0)",
+        minWidth: 0.5,
+        maxWidth: 2.5,
+        throttle: 16,
+      });
+      signaturePadRef.current = signaturePad;
+
+      const resizeCanvas = () => {
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = canvas.offsetWidth * ratio;
+        canvas.height = canvas.offsetHeight * ratio;
+        canvas.getContext("2d").scale(ratio, ratio);
+        signaturePad.clear();
+      };
+
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+
+      return () => {
+        window.removeEventListener("resize", resizeCanvas);
+        if (signaturePadRef.current) {
+          signaturePadRef.current.off();
+        }
+      };
+    }
+  }, [showDialog, signatureType]);
+
+  const handleClearSignature = () => {
+    if (signatureType === "draw" && signaturePadRef.current) {
+      signaturePadRef.current.clear();
+    } else if (signatureType === "text") {
+      setTextSignature("");
+    } else if (signatureType === "image") {
+      setSignatureImage(null);
+    }
+  };
+
+  const handleSaveSignature = () => {
+    let signatureData = null;
+
+    if (
+      signatureType === "draw" &&
+      signaturePadRef.current &&
+      !signaturePadRef.current.isEmpty()
+    ) {
+      signatureData = {
+        type: "draw",
+        data: signaturePadRef.current.toDataURL(),
+      };
+    } else if (signatureType === "text" && textSignature.trim()) {
+      signatureData = {
+        type: "text",
+        data: textSignature,
+        style: {
+          fontFamily: signatureFont,
+          fontSize: fontSize,
+          color: fontColor,
+        },
+      };
+    } else if (signatureType === "image" && signatureImage) {
+      signatureData = {
+        type: "image",
+        data: signatureImage,
+      };
+    }
+
+    if (signatureData) {
+      onSaveSignature(signatureData);
+      setShowDialog(false);
+    }
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setSignatureImage(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    showDialog && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
+          <h3 className="text-lg font-medium text-gray-800 mb-4">
+            Signature Type
+          </h3>
+
+          <div className="flex gap-2 mb-4">
+            {["draw", "text", "image"].map((type) => (
+              <label
+                key={type}
+                className={`flex-1 cursor-pointer p-3 border rounded-md transition-all ${
+                  signatureType === type
+                    ? "border-blue-500 bg-blue-100"
+                    : "border-gray-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="signatureType"
+                  value={type}
+                  checked={signatureType === type}
+                  onChange={() => setSignatureType(type)}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center">
+                  <div className="text-2xl mb-1">
+                    {type === "draw" ? (
+                      <PencilIcon className="w-6 h-6 text-gray-700" />
+                    ) : type === "text" ? (
+                      <ChatBubbleLeftIcon className="w-6 h-6 text-gray-700" />
+                    ) : (
+                      <PhotoIcon className="w-6 h-6 text-gray-700" />
+                    )}
+                  </div>
+                  <span className="capitalize">{type}</span>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            {signatureType === "draw" && (
+              <div className="border p-3 rounded-md">
+                <canvas ref={canvasRef} className="w-full h-40 border"></canvas>
+              </div>
+            )}
+
+            {signatureType === "text" && (
+              <div>
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    value={textSignature}
+                    onChange={(e) => setTextSignature(e.target.value)}
+                    placeholder="Enter your signature"
+                    className="w-full p-2 border rounded-md"
+                    style={{
+                      fontFamily: signatureFont,
+                      fontSize: `${fontSize}px`,
+                      color: fontColor,
+                    }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Font Size
+                    </label>
+                    <div className="flex items-center">
+                      <input
+                        type="range"
+                        min="12"
+                        max="48"
+                        value={fontSize}
+                        onChange={(e) => setFontSize(parseInt(e.target.value))}
+                        className="w-full mr-2"
+                      />
+                      <span className="text-sm w-10">{fontSize}px</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Font Family
+                    </label>
+                    <select
+                      value={signatureFont}
+                      onChange={(e) => setSignatureFont(e.target.value)}
+                      className="w-full p-2 border rounded-md"
+                    >
+                      {fontOptions.map((font) => (
+                        <option key={font.value} value={font.value}>
+                          {font.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Color
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {colorOptions.map((color) => (
+                      <button
+                        key={color.value}
+                        className={`w-6 h-6 rounded-full border-2 ${
+                          fontColor === color.value
+                            ? "border-black"
+                            : "border-transparent"
+                        }`}
+                        style={{ backgroundColor: color.value }}
+                        onClick={() => setFontColor(color.value)}
+                        title={color.label}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={fontColor}
+                      onChange={(e) => setFontColor(e.target.value)}
+                      className="w-8 h-8 p-0 border border-gray-300 rounded-md cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {signatureType === "image" && (
+              <div className="flex flex-col items-center">
+                {signatureImage ? (
+                  <div className="mb-4">
+                    <img
+                      src={signatureImage}
+                      alt="Signature"
+                      className="max-h-40 border rounded-md"
+                    />
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-md p-8 text-center mb-4">
+                    <PhotoIcon className="w-12 h-12 mx-auto text-gray-400" />
+                    <p className="mt-2 text-sm text-gray-600">
+                      No image selected
+                    </p>
+                  </div>
+                )}
+                <button
+                  onClick={() => fileInputRef.current.click()}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
+                >
+                  {signatureImage ? "Change Image" : "Upload Signature Image"}
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end mt-6 gap-2">
+            <button
+              onClick={handleClearSignature}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setShowDialog(false)}
+              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveSignature}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+              disabled={
+                (signatureType === "draw" &&
+                  (!signaturePadRef.current ||
+                    signaturePadRef.current.isEmpty())) ||
+                (signatureType === "text" && !textSignature.trim()) ||
+                (signatureType === "image" && !signatureImage)
+              }
+            >
+              Save Signature
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  );
+};
+
+const DocumentsDetails = () => {
+  const { documentId } = useParams();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [documentData, setDocumentData] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [numPages, setNumPages] = useState(null);
+  const [scale, setScale] = useState(1.0);
+  const [error, setError] = useState(null);
+  const [fileType, setFileType] = useState(null);
+  const [documentComments, setDocumentComments] = useState([]);
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableContent, setEditableContent] = useState("");
+  const [editingMode, setEditingMode] = useState(null);
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false);
+  const [signatures, setSignatures] = useState([]);
+  const [isMarkingPosition, setIsMarkingPosition] = useState(false);
+  const [markedPosition, setMarkedPosition] = useState(null);
+  const documentContainerRef = useRef(null);
+  const pdfContainerRef = useRef(null);
 
   const pdfOptions = useMemo(
     () => ({
@@ -120,7 +388,7 @@ const DocumentsDetails = () => {
         "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/",
     }),
     []
-  ); // Empty dependency array since these values never change
+  );
 
   const fetchDocumentData = async () => {
     setLoading(true);
@@ -134,6 +402,9 @@ const DocumentsDetails = () => {
       });
       if (response.data?.data) {
         setDocumentData(response.data.data);
+        if (response.data.data.Signatures) {
+          setSignatures(JSON.parse(response.data.data.Signatures));
+        }
       } else {
         toast.error("Document not found");
       }
@@ -144,6 +415,7 @@ const DocumentsDetails = () => {
       setLoading(false);
     }
   };
+
   const fetchDocumentComments = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -153,13 +425,12 @@ const DocumentsDetails = () => {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-
       setDocumentComments(response.data || []);
     } catch (error) {
       console.error("Error fetching document comments", error);
     }
   };
-  // Fetch document data
+
   useEffect(() => {
     if (documentId) {
       fetchDocumentData();
@@ -174,35 +445,10 @@ const DocumentsDetails = () => {
     }
   }, [documentData]);
 
-  useEffect(() => {
-    if (documentData) {
-      setDocumentName(documentData.DocumentName || "");
-      setCustomerName(documentData.CustomerName || "");
-      setSelectedStatus(documentData.StatusId || null);
-      setSelectedProjectType(documentData.ProjectTypeName || null);
-    }
-  }, [documentData]);
-
   const handleGoBack = () => {
     navigate(-1);
   };
-  const addSignatureField = () => {
-    const newField = {
-      id: uuidv4(),
-      x: 50,
-      y: 50,
-      width: 200,
-      height: 80,
-      signatureData: null,
-      // pageNumber,
-      type: signatureType,
-      fontSize,
-      fontColor,
-      textValue: textSignature,
-    };
-    setSignatureFields([...signatureFields, newField]);
-    setActiveField(newField.id);
-  };
+
   const handleZoomIn = () => {
     setScale((prevScale) => Math.min(prevScale + 0.1, 2.0));
   };
@@ -219,59 +465,9 @@ const DocumentsDetails = () => {
       toast.error("Unsupported file format for digital signature");
     }
   };
+
   const handleAddComment = () => {
     setShowCommentModal(true);
-  };
-  const handleClearSignature = () => {
-    if (signatureRef.current) {
-      signatureRef.current.clear();
-    }
-  };
-
-  const handleSaveSignature = async () => {
-    if (signatureRef.current && !signatureRef.current.isEmpty()) {
-      const signatureImage = signatureRef.current.toDataURL();
-      const newSignature = {
-        id: Date.now(), // unique id for each signature
-        image: signatureImage,
-        position: { x: 100, y: 100 }, // default initial position
-      };
-      setSignatures([...signatures, newSignature]);
-      setShowSignatureModal(false);
-      toast.success(
-        "Signature added successfully. You can now drag it to position."
-      );
-    } else {
-      toast.warning("Please draw your signature first");
-    }
-  };
-
-  const handleDragStop = (id, e, data) => {
-    const updatedSignatures = signatures.map((sig) => {
-      if (sig.id === id) {
-        // Calculate the relative position based on the container
-        const container = pdfContainerRef.current;
-        const containerRect = container.getBoundingClientRect();
-        const relativeX = (data.x / containerRect.width) * 100; // Convert to percentage
-        const relativeY = (data.y / containerRect.height) * 100; // Convert to percentage
-
-        return {
-          ...sig,
-          position: { x: data.x, y: data.y },
-          relativePosition: { x: relativeX, y: relativeY },
-          pageNumber:
-            Math.floor(data.y / (containerRect.height / numPages)) + 1, // Calculate page number
-        };
-      }
-      return sig;
-    });
-    setSignatures(updatedSignatures);
-  };
-
-  const handleDeleteSignature = (id) => {
-    setSignatures(signatures.filter((sig) => sig.id !== id));
-    setSelectedSignature(null);
-    toast.success("Signature removed");
   };
 
   function onDocumentLoadSuccess({ numPages }) {
@@ -279,33 +475,347 @@ const DocumentsDetails = () => {
   }
 
   const handleDownload = async () => {
-    if (documentData?.FilePath) {
-      try {
-        const response = await fetch(documentData.FilePath, {
-          mode: "cors",
-        });
-        if (!response.ok)
-          throw new Error(`HTTP error! Status: ${response.status}`);
+    if (!documentData?.FilePath) {
+      toast.error("No document file found");
+      return;
+    }
 
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = blobUrl;
-        link.setAttribute(
-          "download",
-          documentData.DocumentName || "document.pdf"
-        ); // Set the filename
-        document.body.appendChild(link);
-        link.click(); // Programmatically click the link to trigger the download
-        document.body.removeChild(link); // Clean up
-        window.URL.revokeObjectURL(blobUrl); // Release the blob URL
-        toast.success("Download started"); // Optional: Show a success message
-      } catch (error) {
-        console.error("Error downloading file:", error);
-        toast.error("Failed to download file"); // Optional: Show an error message
+    setLoading(true);
+    toast.info("Generating signed document...");
+    console.log("Starting document signing process");
+
+    try {
+      // 1. Debug signatures data
+      console.log(`Processing signatures:`, signatures);
+      if (signatures.length === 0) {
+        toast.warning("No signatures to add");
+        return handleSimpleDownload();
       }
-    } else {
-      toast.error("File not found"); // Optional: Show an error message if filePath is invalid
+
+      // 2. Fetch PDF with cache busting and CORS handling
+      const pdfUrl = documentData.FilePath.includes("?")
+        ? `${documentData.FilePath}&t=${Date.now()}`
+        : `${documentData.FilePath}?t=${Date.now()}`;
+
+      console.log(`Fetching PDF from: ${pdfUrl}`);
+      const pdfResponse = await fetch(pdfUrl, {
+        mode: "cors",
+        cache: "no-cache",
+        credentials: "same-origin",
+      });
+
+      if (!pdfResponse.ok) {
+        throw new Error(
+          `Failed to fetch PDF (${pdfResponse.status}): ${pdfResponse.statusText}`
+        );
+      }
+
+      // 3. Load PDF with enhanced error handling
+      console.log("PDF fetched successfully, loading document");
+      const pdfBytes = await pdfResponse.arrayBuffer();
+      console.log(`Original PDF size: ${pdfBytes.byteLength} bytes`);
+
+      const pdfDoc = await PDFDocument.load(pdfBytes, {
+        ignoreEncryption: false,
+        updateMetadata: false,
+      });
+
+      if (pdfDoc.isEncrypted) {
+        throw new Error("PDF is encrypted/cannot be modified");
+      }
+
+      const pages = pdfDoc.getPages();
+      if (pages.length === 0) {
+        throw new Error("PDF contains no pages");
+      }
+
+      // Group signatures by page
+      const signaturesByPage = {};
+      signatures.forEach((signature) => {
+        const pageIndex = signature.pageIndex || 0;
+        if (!signaturesByPage[pageIndex]) {
+          signaturesByPage[pageIndex] = [];
+        }
+        signaturesByPage[pageIndex].push(signature);
+      });
+
+      console.log(`Signatures grouped by page:`, signaturesByPage);
+
+      // Process each page with its signatures
+      const results = [];
+
+      for (const [pageIndexStr, pageSignatures] of Object.entries(
+        signaturesByPage
+      )) {
+        const pageIndex = parseInt(pageIndexStr, 10);
+
+        if (pageIndex >= pages.length) {
+          console.warn(
+            `Page ${pageIndex} doesn't exist in document with ${pages.length} pages`
+          );
+          pageSignatures.forEach((sig) => {
+            results.push({
+              ...sig,
+              status: "failed",
+              error: `Page ${pageIndex} doesn't exist`,
+            });
+          });
+          continue;
+        }
+
+        const page = pages[pageIndex];
+        const { width, height } = page.getSize();
+
+        console.log(`Processing page ${pageIndex}: ${width}x${height} points`);
+
+        // Process signatures for this page
+        const pageResults = await Promise.all(
+          pageSignatures.map(async (signature, index) => {
+            try {
+              const { type, data, position, style } = signature;
+
+              // Calculate position in PDF coordinates
+              const x = (position.x / 100) * width;
+              const yPercentage = position.y / 100;
+
+              if (type === "draw" || type === "image") {
+                // Handle image data
+                let imageData;
+                try {
+                  if (type === "draw") {
+                    if (!data || !data.includes("base64")) {
+                      console.error(
+                        `Invalid draw data format for signature ${index + 1}`
+                      );
+                      return {
+                        ...signature,
+                        status: "failed",
+                        error: "Invalid data format",
+                      };
+                    }
+
+                    const base64Data = data.split(",")[1];
+                    imageData = Uint8Array.from(atob(base64Data), (c) =>
+                      c.charCodeAt(0)
+                    );
+                  } else {
+                    const imgResponse = await fetch(data);
+                    if (!imgResponse.ok) {
+                      throw new Error(
+                        `Failed to fetch image (${imgResponse.status})`
+                      );
+                    }
+                    imageData = await imgResponse.arrayBuffer();
+                  }
+                } catch (error) {
+                  console.error(
+                    `Error processing signature ${index + 1} data:`,
+                    error
+                  );
+                  return {
+                    ...signature,
+                    status: "failed",
+                    error: "Data processing failed",
+                  };
+                }
+
+                // Embed image
+                let image;
+                try {
+                  image = await pdfDoc.embedPng(imageData);
+                } catch (pngError) {
+                  try {
+                    image = await pdfDoc.embedJpg(imageData);
+                  } catch (jpgError) {
+                    return {
+                      ...signature,
+                      status: "failed",
+                      error: "Image format not supported",
+                    };
+                  }
+                }
+
+                if (!image) {
+                  return {
+                    ...signature,
+                    status: "failed",
+                    error: "Image embedding failed",
+                  };
+                }
+
+                // Calculate dimensions
+                const scale = 0.2;
+                const maxWidth = width * 0.15;
+                const maxHeight = height * 0.05;
+
+                let imageWidth = image.width * scale;
+                let imageHeight = image.height * scale;
+
+                if (imageWidth > maxWidth) {
+                  const ratio = maxWidth / imageWidth;
+                  imageWidth = maxWidth;
+                  imageHeight *= ratio;
+                }
+
+                if (imageHeight > maxHeight) {
+                  const ratio = maxHeight / imageHeight;
+                  imageHeight = maxHeight;
+                  imageWidth *= ratio;
+                }
+
+                // FIXED: Correct signature positioning
+                // Convert UI top-left coordinates to PDF bottom-left coordinates
+                // Then adjust for image height to place the top of the image at the clicked position
+                const drawY = height - yPercentage * height - imageHeight;
+
+                console.log(
+                  `Drawing at (${x}, ${drawY}) with size ${imageWidth}x${imageHeight}`
+                );
+
+                // Ensure signature stays within page bounds
+                const finalX = Math.max(0, Math.min(width - imageWidth, x));
+                const finalY = Math.max(
+                  0,
+                  Math.min(height - imageHeight, drawY)
+                );
+
+                page.drawImage(image, {
+                  x: finalX,
+                  y: finalY,
+                  width: imageWidth,
+                  height: imageHeight,
+                });
+
+                return {
+                  ...signature,
+                  status:
+                    finalX === x && finalY === drawY ? "added" : "adjusted",
+                };
+              } else if (type === "text") {
+                // Handle text signature
+                const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+                const fontSize = style?.fontSize || 16;
+
+                // FIXED: Text positioning - no need to adjust for height
+                const textY = height - yPercentage * height;
+
+                page.drawText(data, {
+                  x: x,
+                  y: textY,
+                  size: fontSize,
+                  font,
+                  color: rgb(0, 0, 0),
+                });
+
+                return { ...signature, status: "added" };
+              } else {
+                return {
+                  ...signature,
+                  status: "skipped",
+                  error: "Unknown type",
+                };
+              }
+            } catch (error) {
+              console.error(`Error processing signature ${index + 1}:`, error);
+              return {
+                ...signature,
+                status: "failed",
+                error: error.message,
+              };
+            }
+          })
+        );
+
+        results.push(...pageResults);
+      }
+
+      // Verify results
+      const failed = results.filter((r) => r.status === "failed");
+      const added = results.filter(
+        (r) => r.status === "added" || r.status === "adjusted"
+      );
+
+      console.log(
+        `Signatures processed: ${added.length} added, ${failed.length} failed`
+      );
+
+      if (failed.length > 0) {
+        toast.warning(`${failed.length} signatures failed to add`);
+      }
+
+      // Generate final PDF
+      const modifiedPdfBytes = await pdfDoc.save({
+        updateFieldAppearances: true,
+        addDefaultPage: false,
+        useObjectStreams: false,
+      });
+
+      // Create download
+      const blob = new Blob([modifiedPdfBytes], { type: "application/pdf" });
+      const downloadUrl = URL.createObjectURL(blob);
+
+      const filename = documentData.DocumentName
+        ? `${documentData.DocumentName.replace(/\.pdf$/i, "")}_signed.pdf`
+        : "signed-document.pdf";
+
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+      }, 2000);
+
+      toast.success(`Downloaded with ${added.length} signatures`);
+    } catch (error) {
+      console.error("PDF signing failed:", error);
+      toast.error(`Failed: ${error.message}`);
+      handleSimpleDownload();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Simple download fallback
+  const handleSimpleDownload = async () => {
+    console.log("Attempting simple download");
+    try {
+      const response = await fetch(documentData.FilePath, {
+        cache: "no-cache", // Ensure we get the latest version
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch (${response.status}): ${response.statusText}`
+        );
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      const filename = documentData.DocumentName || "document.pdf";
+      console.log(`Simple download: ${filename}`);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log("Simple download element cleaned up");
+      }, 1000);
+
+      toast.info("Downloaded original document");
+    } catch (error) {
+      console.error("Simple download failed:", error);
+      toast.error("Failed to download document");
     }
   };
 
@@ -341,7 +851,6 @@ const DocumentsDetails = () => {
         toast.success("Comment added successfully");
         setCommentText("");
         setShowCommentModal(false);
-        // Refresh comments
         fetchDocumentComments();
       } else {
         toast.error(response.data.message || "Failed to add comment");
@@ -354,11 +863,45 @@ const DocumentsDetails = () => {
     }
   };
 
+  const handleSaveSignature = (signatureData) => {
+    const newSignature = {
+      id: uuidv4(),
+      type: signatureData.type,
+      data: signatureData.data,
+      position: markedPosition || { x: 50, y: 50 },
+      size: { width: 200, height: 100 },
+      ...(signatureData.style && { style: signatureData.style }),
+    };
+
+    setSignatures([...signatures, newSignature]);
+    setIsMarkingPosition(false);
+    setMarkedPosition(null);
+
+    // Immediately update document data with signatures
+    setDocumentData((prev) => ({
+      ...prev,
+      Signatures: JSON.stringify([...signatures, newSignature]),
+    }));
+  };
+
+  const handleDocumentClick = (e) => {
+    if (isMarkingPosition) {
+      const container = documentContainerRef.current;
+      const rect = container.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+      setMarkedPosition({ x, y });
+      setIsMarkingPosition(false);
+      setShowSignatureDialog(true);
+    }
+  };
+
   const handleUpdateDocument = async () => {
     setIsLoading(true);
     const formData = new FormData();
-    const UserID = Number(localStorage.getItem("UserID")); // Ensure it's a number
-    const tenantId = Number(localStorage.getItem("TenantID")); // Ensure it's a number
+    const UserID = Number(localStorage.getItem("UserID"));
+    const tenantId = Number(localStorage.getItem("TenantID"));
 
     if (!documentData || !documentData.DocumentNo) {
       toast.error("Invalid document data.");
@@ -367,9 +910,8 @@ const DocumentsDetails = () => {
     }
 
     try {
-      // Append necessary data (Ensure integer fields are valid numbers)
       formData.append("DocumentNo", documentData.DocumentNo);
-      formData.append("DocumentName", documentData.DocumentName || ""); // Default empty string if missing
+      formData.append("DocumentName", documentData.DocumentName || "");
       formData.append("CustomerName", documentData.CustomerName || "");
       formData.append("StatusId", Number(documentData.StatusId) || 0);
       formData.append("ProjectType", Number(documentData.ProjectTypeName) || 0);
@@ -378,7 +920,6 @@ const DocumentsDetails = () => {
         formData.append("TenantId", tenantId);
       }
 
-      // Fetch document file if FilePath exists
       if (documentData.FilePath) {
         const documentResponse = await fetch(documentData.FilePath);
         if (!documentResponse.ok) {
@@ -389,13 +930,10 @@ const DocumentsDetails = () => {
         const documentFile = new File([documentBlob], fileName, {
           type: documentBlob.type,
         });
-
-        // Append file
         formData.append("UploadDocument", documentFile);
       }
 
-      // Append signatures if available
-      if (signatures && signatures.length > 0) {
+      if (signatures.length > 0) {
         formData.append("Signatures", JSON.stringify(signatures));
       }
 
@@ -413,7 +951,7 @@ const DocumentsDetails = () => {
 
       if (response.data.status === "success") {
         toast.success("Document updated successfully!");
-        fetchDocumentData(); // Refresh the document data
+        fetchDocumentData();
       } else {
         toast.error(response.data.message || "Failed to update document");
       }
@@ -425,475 +963,11 @@ const DocumentsDetails = () => {
     }
   };
 
-  const addSignatureToPDF = async (pdfBytes, signatures) => {
-    try {
-      const pdfDoc = await PDFDocument.load(pdfBytes);
-      const page = pdfDoc.getPages()[0];
-      const { width, height } = page.getSize();
-
-      // Add each signature to the PDF
-      for (const sig of signatures) {
-        // Convert base64 signature to bytes
-        const signatureImageBytes = await fetch(sig.image).then((res) =>
-          res.arrayBuffer()
-        );
-        const signatureImageEmbed = await pdfDoc.embedPng(signatureImageBytes);
-
-        // Calculate position
-        const xPos = (sig.position.x / 100) * width;
-        const yPos = height - (sig.position.y / 100) * height - 100; // 100 is signature height
-
-        // Draw signature
-        page.drawImage(signatureImageEmbed, {
-          x: xPos,
-          y: yPos,
-          width: 200, // signature width
-          height: 100, // signature height
-        });
-      }
-
-      // Save the modified PDF
-      const modifiedPdfBytes = await pdfDoc.save();
-      return new Blob([modifiedPdfBytes], { type: "application/pdf" });
-    } catch (error) {
-      console.error("Error adding signatures to PDF:", error);
-      throw error;
-    }
+  const handleDeleteSignature = (id) => {
+    setSignatures(signatures.filter((sig) => sig.id !== id));
+    toast.success("Signature removed");
   };
 
-  const addSignatureToDocx = async (docxBlob, signatures) => {
-    try {
-      // Convert the signature to a base64 string for embedding
-      const signaturePromises = signatures.map(async (sig) => {
-        // Convert base64 image URL to binary
-        const response = await fetch(sig.image);
-        const blob = await response.blob();
-        return {
-          ...sig,
-          blob: blob,
-        };
-      });
-
-      const processedSignatures = await Promise.all(signaturePromises);
-
-      // Create form data with both document and signatures
-      const formData = new FormData();
-      formData.append("document", docxBlob, "document.docx");
-
-      // Add each signature with its position
-      processedSignatures.forEach((sig, index) => {
-        formData.append(
-          `signature_${index}`,
-          sig.blob,
-          `signature_${index}.png`
-        );
-        formData.append(
-          `signature_position_${index}`,
-          JSON.stringify({
-            x: sig.position.x,
-            y: sig.position.y,
-            width: 200, // default signature width
-            height: 100, // default signature height
-          })
-        );
-      });
-
-      return formData;
-    } catch (error) {
-      console.error("Error processing DOCX signatures:", error);
-      throw error;
-    }
-  };
-
-  const handleSignatureComplete = async (signatureData) => {
-    try {
-      const newSignature = {
-        id: Date.now(),
-        image: signatureData.signatureImage,
-        position: signatureData.metadata.position,
-        signedBy: signatureData.metadata.signedBy,
-        signedDate: signatureData.metadata.signedDate,
-      };
-
-      // Add the new signature to the temporary signatures array
-      setTempSignatures((prev) => [...prev, newSignature]);
-
-      // If it's a PDF, immediately process the signature
-      if (fileType === "pdf") {
-        const documentResponse = await fetch(documentData.FilePath);
-        const pdfBytes = await documentResponse.arrayBuffer();
-
-        // Load the PDF document
-        const pdfDoc = await PDFDocument.load(pdfBytes);
-        const pages = pdfDoc.getPages();
-        const page = pages[0]; // You might want to handle multiple pages
-
-        // Convert signature to proper format
-        const signatureImageData = signatureData.signatureImage.split(",")[1];
-        const signatureBytes = Uint8Array.from(atob(signatureImageData), (c) =>
-          c.charCodeAt(0)
-        );
-
-        // Embed the signature image
-        const signatureImage = await pdfDoc.embedPng(signatureBytes);
-
-        // Calculate position
-        const { width, height } = page.getSize();
-        const xPos = (signatureData.metadata.position.x / 100) * width;
-        const yPos =
-          height - (signatureData.metadata.position.y / 100) * height;
-
-        // Draw the signature
-        page.drawImage(signatureImage, {
-          x: xPos,
-          y: yPos,
-          width: 200,
-          height: 100,
-        });
-
-        // Save the modified PDF
-        const modifiedPdfBytes = await pdfDoc.save();
-        const modifiedPdfBlob = new Blob([modifiedPdfBytes], {
-          type: "application/pdf",
-        });
-
-        setModifiedDocument(modifiedPdfBlob);
-      }
-
-      toast.success("Signature added successfully");
-    } catch (error) {
-      console.error("Error processing signature:", error);
-      toast.error("Failed to process signature");
-    }
-  };
-
-  const handleDocumentClick = (e) => {
-    if (isMarkingPosition) {
-      const container = documentContainerRef.current;
-      const rect = container.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-      setMarkedPosition({ x, y });
-      setIsMarkingPosition(false);
-      setShowSignatureModal(true); // Show signature modal after marking position
-    }
-  };
-
-  // Add this function to handle the OpenSign callback
-  const handleOpenSignCallback = async (callbackData) => {
-    if (callbackData.status === "completed") {
-      try {
-        // Get the signed document from OpenSign
-        const signedDocResponse = await fetch(callbackData.signedDocumentUrl);
-        const signedDocBlob = await signedDocResponse.blob();
-
-        // Create form data for your backend
-        const formData = new FormData();
-        formData.append(
-          "UploadDocument",
-          signedDocBlob,
-          documentData.DocumentName
-        );
-        formData.append("DocumentId", documentId);
-        formData.append(
-          "SignatureMetadata",
-          JSON.stringify({
-            signedBy: localStorage.getItem("UserName"),
-            signedDate: new Date().toISOString(),
-            openSignTransactionId: callbackData.transactionId,
-          })
-        );
-
-        // Update your document with the signed version
-        await handleSignatureComplete({
-          signatureBlob: signedDocBlob,
-          signatureImage: URL.createObjectURL(signedDocBlob),
-          metadata: {
-            signedBy: localStorage.getItem("UserName"),
-            signedDate: new Date().toISOString(),
-            position: { x: 100, y: 100 },
-          },
-        });
-        toast.success("Document signed successfully");
-      } catch (error) {
-        console.error("Error processing signed document:", error);
-        toast.error("Failed to process signed document");
-      }
-    }
-  };
-
-  // Add this component for draggable signature
-  const SignatureWithControls = ({
-    signature,
-    onEdit,
-    onDelete,
-    onPositionChange,
-  }) => {
-    return (
-      <Draggable
-        onStop={(e, data) => {
-          const container = pdfContainerRef.current;
-          const rect = container.getBoundingClientRect();
-          const x = (data.x / rect.width) * 100;
-          const y = (data.y / rect.height) * 100;
-          onPositionChange({ x, y });
-        }}
-        bounds="parent"
-        defaultPosition={{
-          x:
-            (signature.position.x * pdfContainerRef.current?.clientWidth || 0) /
-            100,
-          y:
-            (signature.position.y * pdfContainerRef.current?.clientHeight ||
-              0) / 100,
-        }}
-      >
-        <div className="absolute cursor-move group">
-          <img
-            src={signature.image}
-            alt="signature"
-            className="max-w-[200px] max-h-[100px]"
-            style={{ transform: `scale(${scale})` }}
-          />
-          <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(signature);
-              }}
-              className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              <HiPencil className="w-4 h-4" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(signature.id);
-              }}
-              className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-            >
-              <HiTrash className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </Draggable>
-    );
-  };
-
-  // Add save changes button handler
-  const handleSaveChanges = async () => {
-    try {
-      const token = localStorage.getItem("token");
-
-      // Get the original document
-      const documentResponse = await fetch(documentData.FilePath);
-      const documentBlob = await documentResponse.blob();
-
-      // Create form data
-      const formData = new FormData();
-
-      // Add the document with signatures
-      formData.append(
-        "UploadDocument",
-        documentBlob,
-        documentData.DocumentName
-      );
-
-      // Add all signatures data
-      signatures.forEach((sig, index) => {
-        formData.append(
-          `Signature_${index}`,
-          sig.blob,
-          `signature_${index}.png`
-        );
-        formData.append(
-          `SignatureMetadata_${index}`,
-          JSON.stringify({
-            signedBy: sig.signedBy,
-            signedDate: sig.signedDate,
-            position: sig.position,
-          })
-        );
-      });
-
-      // Add other required fields
-      formData.append("DocumentId", documentId);
-      formData.append("DocumentNo", documentData.DocumentNo);
-      formData.append("DocumentName", documentData.DocumentName || "");
-      formData.append("CustomerName", documentData.CustomerName || "");
-      formData.append("StatusId", documentData.StatusId || 0);
-      formData.append("ProjectType", documentData.ProjectTypeName || 0);
-      formData.append("UpdatedBy", localStorage.getItem("UserID") || 0);
-      formData.append("TenantId", localStorage.getItem("TenantID") || 0);
-
-      const response = await axios.put(
-        `${UPDATE_DOCUMENT_API}/${documentId}`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      if (response.data.status === "success") {
-        toast.success("Document updated successfully!");
-        setUnsavedChanges(false);
-        fetchDocumentData();
-      } else {
-        toast.error(response.data.message || "Failed to update document");
-      }
-    } catch (error) {
-      console.error("Error updating document:", error);
-      toast.error("Failed to update document");
-    }
-  };
-
-  // Add this function to extract text from PDF
-  const extractPDFText = async (pdfBytes) => {
-    try {
-      const pdf = await PDFDocument.load(pdfBytes);
-      const pages = pdf.getPages();
-      let text = "";
-
-      // Basic text extraction - note that this is simplified
-      // For more accurate text extraction, consider using pdf.js or other PDF parsing libraries
-      for (const page of pages) {
-        const { width, height } = page.getSize();
-        text += page.getText() + "\n";
-      }
-
-      return text;
-    } catch (error) {
-      console.error("Error extracting PDF text:", error);
-      throw error;
-    }
-  };
-
-  // Update handleFinalSubmit to properly define finalDocument
-  const handleFinalSubmit = async () => {
-    try {
-      setIsLoading(true);
-      const token = localStorage.getItem("token");
-
-      // Get the original document
-      const documentResponse = await fetch(documentData.FilePath);
-      const documentBlob = await documentResponse.blob();
-      let finalFormData = new FormData();
-      let finalDocument; // Define finalDocument variable
-
-      if (fileType === "pdf") {
-        // For PDF files, merge signatures with the document
-        const documentArrayBuffer = await documentBlob.arrayBuffer();
-        finalDocument = await addSignatureToPDF(
-          documentArrayBuffer,
-          tempSignatures
-        );
-        finalFormData.append(
-          "UploadDocument",
-          finalDocument,
-          documentData.DocumentName
-        );
-      } else if (fileType === "docx") {
-        // For DOCX files, send document and signatures separately
-        const processedFormData = await addSignatureToDocx(
-          documentBlob,
-          tempSignatures
-        );
-
-        // Copy all entries from processedFormData to finalFormData
-        for (let [key, value] of processedFormData.entries()) {
-          finalFormData.append(key, value);
-        }
-      }
-
-      // Add other required fields
-      finalFormData.append("DocumentId", documentId);
-      finalFormData.append("DocumentNo", documentData.DocumentNo);
-      finalFormData.append("DocumentName", documentData.DocumentName || "");
-      finalFormData.append("CustomerName", documentData.CustomerName || "");
-      finalFormData.append("StatusId", documentData.StatusId || 0);
-      finalFormData.append("ProjectType", documentData.ProjectTypeName || 0);
-      finalFormData.append("UpdatedBy", localStorage.getItem("UserID") || 0);
-      finalFormData.append("TenantId", localStorage.getItem("TenantID") || 0);
-
-      // Send to backend
-      const response = await axios.put(
-        `${UPDATE_DOCUMENT_API}/${documentId}`,
-        finalFormData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      if (response.data.status === "success") {
-        toast.success("Document updated successfully!");
-        setTempSignatures([]);
-        fetchDocumentData();
-      } else {
-        toast.error(response.data.message || "Failed to update document");
-      }
-    } catch (error) {
-      console.error("Error updating document:", error);
-      toast.error("Failed to update document");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Add this function to handle signature editing
-  const handleEditSignature = (signature) => {
-    setEditingSignature(signature);
-    setShowSignatureModal(true);
-    setIsEditing(true);
-  };
-  useEffect(() => {
-    if (!canvasRef.current) return; // Prevents running if ref is not assigned
-
-    let pad = null;
-    const initializeSignaturePad = async () => {
-      try {
-        pad = new SignaturePad(canvasRef.current, {
-          backgroundColor: "rgba(255, 255, 255, 0)",
-          penColor: "rgb(0, 0, 0)",
-          minWidth: 0.5,
-          maxWidth: 2.5,
-          throttle: 16,
-        });
-        setSignaturePad(pad);
-
-        const resizeCanvas = () => {
-          const ratio = Math.max(window.devicePixelRatio || 1, 1);
-          const canvas = canvasRef.current;
-          if (!canvas) return; // Ensure canvas is available before resizing
-
-          canvas.width = canvas.offsetWidth * ratio;
-          canvas.height = canvas.offsetHeight * ratio;
-          canvas.getContext("2d").scale(ratio, ratio);
-          pad.clear();
-        };
-
-        window.addEventListener("resize", resizeCanvas);
-        resizeCanvas();
-
-        return () => {
-          window.removeEventListener("resize", resizeCanvas);
-          pad.off();
-        };
-      } catch (err) {
-        console.error("Failed to initialize signature pad:", err);
-        setError("Failed to initialize signature pad. Please refresh the page.");
-      }
-    };
-
-    initializeSignaturePad();
-  }, []);
-  // Add position marker component
   const PositionMarker = ({ position }) => {
     return (
       <div
@@ -912,137 +986,6 @@ const DocumentsDetails = () => {
     );
   };
 
-  // Add function to handle document editing
-  const handleEditDocument = async () => {
-    try {
-      setIsLoading(true);
-
-      if (fileType === "pdf") {
-        // Load PDF for editing
-        const response = await fetch(documentData.FilePath);
-        const pdfBytes = await response.arrayBuffer();
-        const pdfDoc = await PDFDocument.load(pdfBytes);
-        const pages = pdfDoc.getPages();
-
-        // Extract text content for editing
-        const textContent = await extractPDFText(pdfBytes);
-        setEditableContent(textContent);
-      } else if (fileType === "docx") {
-        // Load DOCX for editing
-        const response = await fetch(documentData.FilePath);
-        const docxBuffer = await response.arrayBuffer();
-
-        // Convert DOCX to HTML for editing
-        const result = await mammoth.convertToHtml({ arrayBuffer: docxBuffer });
-        setEditableContent(result.value);
-      }
-
-      setIsEditing(true);
-      setEditingMode("text");
-    } catch (error) {
-      console.error("Error preparing document for edit:", error);
-      toast.error("Failed to prepare document for editing");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Add function to save edited content
-  const handleSaveEdit = async () => {
-    try {
-      setIsLoading(true);
-      let modifiedDocument;
-
-      if (fileType === "pdf") {
-        // Create new PDF with edited content
-        const pdfDoc = await PDFDocument.create();
-        const page = pdfDoc.addPage();
-        const { width, height } = page.getSize();
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-
-        // Add edited text to PDF
-        page.drawText(editableContent, {
-          x: 50,
-          y: height - 50,
-          size: 12,
-          font: font,
-          color: rgb(0, 0, 0),
-        });
-
-        const pdfBytes = await pdfDoc.save();
-        modifiedDocument = new Blob([pdfBytes], { type: "application/pdf" });
-      } else if (fileType === "docx") {
-        // Create new DOCX with edited content
-        const doc = new DocxDocument({
-          sections: [
-            {
-              properties: {},
-              children: [
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: editableContent,
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        });
-
-        const docxBuffer = await Packer.toBuffer(doc);
-        modifiedDocument = new Blob([docxBuffer], {
-          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-      }
-
-      // Send to backend
-      const formData = new FormData();
-      formData.append(
-        "UploadDocument",
-        modifiedDocument,
-        documentData.DocumentName
-      );
-      formData.append("DocumentId", documentId);
-      formData.append("DocumentNo", documentData.DocumentNo);
-      formData.append("DocumentName", documentData.DocumentName || "");
-      formData.append("CustomerName", documentData.CustomerName || "");
-      formData.append("StatusId", documentData.StatusId || 0);
-      formData.append("ProjectType", documentData.ProjectTypeName || 0);
-      formData.append("UpdatedBy", localStorage.getItem("UserID") || 0);
-      formData.append("TenantId", localStorage.getItem("TenantID") || 0);
-
-      const token = localStorage.getItem("token");
-      const response = await axios.put(
-        `${UPDATE_DOCUMENT_API}/${documentId}`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      if (response.data.status === "success") {
-        toast.success("Document updated successfully!");
-        setIsEditing(false);
-        fetchDocumentData();
-      } else {
-        toast.error(response.data.message || "Failed to update document");
-      }
-    } catch (error) {
-      console.error("Error saving edited document:", error);
-      toast.error("Failed to save document changes");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (loading) {
-    return <LoadingAnimation />;
-  }
-
   const getStatusColor = (status) => {
     switch (status) {
       case 1:
@@ -1056,7 +999,6 @@ const DocumentsDetails = () => {
     }
   };
 
-  // Update the renderDocumentPreview function
   const renderDocumentPreview = () => {
     if (!documentData?.FilePath) return null;
 
@@ -1067,19 +1009,21 @@ const DocumentsDetails = () => {
             <div className="space-x-2">
               <button
                 onClick={() => setEditingMode("text")}
-                className={`px-4 py-2 rounded ${editingMode === "text"
-                  ? "bg-[#8B4513] text-white"
-                  : "bg-gray-200"
-                  }`}
+                className={`px-4 py-2 rounded ${
+                  editingMode === "text"
+                    ? "bg-[#8B4513] text-white"
+                    : "bg-gray-200"
+                }`}
               >
                 Text Edit
               </button>
               <button
                 onClick={() => setEditingMode("drawing")}
-                className={`px-4 py-2 rounded ${editingMode === "drawing"
-                  ? "bg-[#8B4513] text-white"
-                  : "bg-gray-200"
-                  }`}
+                className={`px-4 py-2 rounded ${
+                  editingMode === "drawing"
+                    ? "bg-[#8B4513] text-white"
+                    : "bg-gray-200"
+                }`}
               >
                 Draw/Annotate
               </button>
@@ -1092,7 +1036,7 @@ const DocumentsDetails = () => {
                 Cancel
               </button>
               <button
-                onClick={handleSaveEdit}
+                onClick={handleUpdateDocument}
                 className="px-4 py-2 bg-[#8B4513] text-white rounded"
               >
                 Save Changes
@@ -1108,11 +1052,12 @@ const DocumentsDetails = () => {
               style={{ fontFamily: "monospace" }}
             />
           ) : (
-            <canvas
-              ref={canvasRef}
+            <div
               className="border rounded"
               style={{ width: "100%", height: "600px" }}
-            />
+            >
+              {/* Drawing canvas would go here */}
+            </div>
           )}
         </div>
       );
@@ -1139,37 +1084,73 @@ const DocumentsDetails = () => {
                     scale={scale}
                     className="shadow-lg bg-white"
                   />
-                  {/* Show position marker */}
                   {isMarkingPosition && markedPosition && (
                     <PositionMarker position={markedPosition} />
                   )}
-                  {/* Show existing signatures */}
-                  {tempSignatures.map((signature) => (
+                  {signatures.map((signature) => (
                     <Draggable
                       key={signature.id}
-                      defaultPosition={signature.position}
+                      defaultPosition={{
+                        x: signature.position.x,
+                        y: signature.position.y,
+                      }}
                       onStop={(e, data) => {
-                        const rect =
-                          documentContainerRef.current.getBoundingClientRect();
-                        const x = (data.x / rect.width) * 100;
-                        const y = (data.y / rect.height) * 100;
-
-                        setTempSignatures((prev) =>
-                          prev.map((sig) =>
-                            sig.id === signature.id
-                              ? { ...sig, position: { x, y } }
-                              : sig
-                          )
-                        );
+                        const updatedSignatures = signatures.map((sig) => {
+                          if (sig.id === signature.id) {
+                            return {
+                              ...sig,
+                              position: { x: data.x, y: data.y },
+                            };
+                          }
+                          return sig;
+                        });
+                        setSignatures(updatedSignatures);
                       }}
                       bounds="parent"
                     >
-                      <div className="absolute cursor-move">
-                        <img
-                          src={signature.image}
-                          alt="signature"
-                          className="max-w-[200px] max-h-[100px]"
-                        />
+                      <div className="absolute cursor-move group">
+                        {signature.type === "draw" ||
+                        signature.type === "image" ? (
+                          <img
+                            src={signature.data}
+                            alt="signature"
+                            className="max-w-[200px] max-h-[100px]"
+                            style={{ transform: `scale(${scale})` }}
+                          />
+                        ) : (
+                          <div
+                            className="text-signature"
+                            style={{
+                              fontFamily:
+                                signature.style?.fontFamily || "cursive",
+                              fontSize: `${signature.style?.fontSize || 24}px`,
+                              color: signature.style?.color || "#000000",
+                              transform: `scale(${scale})`,
+                            }}
+                          >
+                            {signature.data}
+                          </div>
+                        )}
+                        <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Handle edit if needed
+                            }}
+                            className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                          >
+                            <HiPencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSignature(signature.id);
+                            }}
+                            className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          >
+                            <HiTrash className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </Draggable>
                   ))}
@@ -1182,49 +1163,87 @@ const DocumentsDetails = () => {
                 fileType={fileType}
                 filePath={documentData.FilePath}
               />
-              {/* Similar signature rendering for DOCX */}
+              {signatures.map((signature) => (
+                <Draggable
+                  key={signature.id}
+                  defaultPosition={{
+                    x: signature.position.x,
+                    y: signature.position.y,
+                  }}
+                  onStop={(e, data) => {
+                    const updatedSignatures = signatures.map((sig) => {
+                      if (sig.id === signature.id) {
+                        return {
+                          ...sig,
+                          position: { x: data.x, y: data.y },
+                        };
+                      }
+                      return sig;
+                    });
+                    setSignatures(updatedSignatures);
+                  }}
+                  bounds="parent"
+                >
+                  <div className="absolute cursor-move group">
+                    {signature.type === "draw" || signature.type === "image" ? (
+                      <img
+                        src={signature.data}
+                        alt="signature"
+                        className="max-w-[200px] max-h-[100px]"
+                        style={{ transform: `scale(${scale})` }}
+                      />
+                    ) : (
+                      <div
+                        className="text-signature"
+                        style={{
+                          fontFamily: signature.style?.fontFamily || "cursive",
+                          fontSize: `${signature.style?.fontSize || 24}px`,
+                          color: signature.style?.color || "#000000",
+                          transform: `scale(${scale})`,
+                        }}
+                      >
+                        {signature.data}
+                      </div>
+                    )}
+                    <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Handle edit if needed
+                        }}
+                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      >
+                        <HiPencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSignature(signature.id);
+                        }}
+                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      >
+                        <HiTrash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </Draggable>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Instructions */}
         {isMarkingPosition && (
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-lg shadow-lg z-50">
             Click where you want to place the signature
           </div>
         )}
-
-        {/* Save/Cancel buttons */}
-        {tempSignatures.length > 0 && (
-          <div className="fixed bottom-4 right-4 z-50 flex gap-2">
-            <button
-              onClick={() => {
-                setTempSignatures([]);
-                setMarkedPosition(null);
-              }}
-              className="px-4 py-2 bg-gray-500 text-white rounded-lg shadow-lg hover:bg-opacity-90"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleFinalSubmit}
-              disabled={isLoading}
-              className="px-4 py-2 bg-[#8B4513] text-white rounded-lg shadow-lg hover:bg-opacity-90 flex items-center"
-            >
-              {isLoading ? (
-                <>
-                  <LoadingAnimation />
-                  <span className="ml-2">Saving...</span>
-                </>
-              ) : (
-                "Save Document"
-              )}
-            </button>
-          </div>
-        )}
       </div>
     );
   };
+
+  if (loading) {
+    return <LoadingAnimation />;
+  }
 
   return (
     <div className="flex h-screen bg-white mt-10">
@@ -1254,7 +1273,7 @@ const DocumentsDetails = () => {
           <div className="flex items-center space-x-4">
             {(fileType === "pdf" || fileType === "docx") && (
               <button
-                onClick={() => setShowDialog(true)}
+                onClick={handleAddSignature}
                 className="px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-[#8B4513] flex items-center"
               >
                 <HiPencil className="w-4 h-4 mr-2" />
@@ -1322,17 +1341,16 @@ const DocumentsDetails = () => {
                     {documentData?.StatusId === 1
                       ? "Pending"
                       : documentData?.StatusId === 2
-                        ? "Approved"
-                        : documentData?.StatusId === 3
-                          ? "Rejected"
-                          : "Unknown"}
+                      ? "Approved"
+                      : documentData?.StatusId === 3
+                      ? "Rejected"
+                      : "Unknown"}
                   </p>
                 </div>
               </div>
               <div className="flex justify-end mt-4 space-x-4">
                 <button
-                  // onClick={handleDownload}
-                  onClick={addSignatureField}
+                  onClick={handleDownload}
                   className="px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-opacity-90 flex items-center"
                   title="Download Document"
                 >
@@ -1342,8 +1360,9 @@ const DocumentsDetails = () => {
                 <button
                   onClick={handleUpdateDocument}
                   disabled={isLoading}
-                  className={`px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-opacity-90 flex items-center ${isLoading ? "opacity-50 cursor-not-allowed" : ""
-                    }`}
+                  className={`px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-opacity-90 flex items-center ${
+                    isLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
                 >
                   {isLoading ? (
                     <>
@@ -1373,13 +1392,6 @@ const DocumentsDetails = () => {
                     "Update Document"
                   )}
                 </button>
-
-                <button
-                  onClick={() => setIsPopupOpen(true)}
-                  className="px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-opacity-90 flex items-center"
-                >
-                  Add Approval
-                </button>
               </div>
             </div>
 
@@ -1394,13 +1406,82 @@ const DocumentsDetails = () => {
         </div>
       </div>
 
-      <SignatureModal
-        showModal={showSignatureModal}
-        onClose={() => setShowSignatureModal(false)}
-        documentData={documentData}
-        documentId={documentId}
-        onSignatureComplete={handleSignatureComplete}
-        markedPosition={markedPosition}
+      {/* Right Sidebar - Approvals and Comments */}
+      <div className="w-80 border-l bg-gray-50">
+        <div className="p-4">
+          <h2 className="font-semibold mb-4 text-gray-800">Approval History</h2>
+          <div className="space-y-4">
+            {documentData?.Approvals?.map((approval, index) => (
+              <div key={index} className="bg-white p-3 rounded-lg shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      approval.Status.toLowerCase() === "approved"
+                        ? "bg-green-500"
+                        : approval.Status.toLowerCase() === "rejected"
+                        ? "bg-red-500"
+                        : "bg-yellow-500"
+                    }`}
+                  ></span>
+                  <span className="font-medium text-gray-800">
+                    {approval.UserName}
+                  </span>
+                  <span
+                    className={`text-sm ${
+                      approval.Status.toLowerCase() === "approved"
+                        ? "text-green-500"
+                        : approval.Status.toLowerCase() === "rejected"
+                        ? "text-red-500"
+                        : "text-yellow-500"
+                    }`}
+                  >
+                    {approval.Status}
+                  </span>
+                </div>
+                {approval.Comments && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    {approval.Comments}
+                  </p>
+                )}
+                <div className="text-xs text-gray-400 mt-2">
+                  <p>Level: {approval.ApprovalLevel}</p>
+                  <p>Date: {new Date(approval.CreatedDate).toLocaleString()}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-4">
+          <h2 className="font-semibold mb-4 text-gray-800 mt-6">Comments</h2>
+          <div className="space-y-4">
+            {documentComments.length > 0 ? (
+              documentComments.map((comment, index) => (
+                <div key={index} className="bg-white p-3 rounded-lg shadow-sm">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium text-gray-800">
+                      {comment.User?.FirstName || "Unknown User"}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(comment.CreatedDate).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-2">
+                    {comment.CommentText}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-600">No comments available.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Signature Dialog */}
+      <SignatureDialog
+        showDialog={showSignatureDialog}
+        setShowDialog={setShowSignatureDialog}
+        onSaveSignature={handleSaveSignature}
       />
 
       {/* Comment Modal */}
@@ -1445,8 +1526,9 @@ const DocumentsDetails = () => {
               <button
                 onClick={handleSubmitComment}
                 disabled={isSubmittingComment}
-                className={`px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-[#8B4513] flex items-center ${isSubmittingComment ? "opacity-50 cursor-not-allowed" : ""
-                  }`}
+                className={`px-4 py-2 bg-[#8B4513] text-white rounded hover:bg-[#8B4513] flex items-center ${
+                  isSubmittingComment ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
                 {isSubmittingComment ? (
                   <>
@@ -1480,170 +1562,6 @@ const DocumentsDetails = () => {
           </div>
         </div>
       )}
-
-      {/* Right Sidebar - Approvals */}
-      <div className="w-80 border-l bg-gray-50">
-        <div className="p-4">
-          <h2 className="font-semibold mb-4 text-gray-800">Approval History</h2>
-          <div className="space-y-4">
-            {documentData?.Approvals?.map((approval, index) => (
-              <div key={index} className="bg-white p-3 rounded-lg shadow-sm">
-                <div className="flex items-center space-x-2">
-                  <span
-                    className={`w-2 h-2 rounded-full ${approval.Status.toLowerCase() === "approved"
-                      ? "bg-green-500"
-                      : approval.Status.toLowerCase() === "rejected"
-                        ? "bg-red-500"
-                        : "bg-yellow-500"
-                      }`}
-                  ></span>
-                  <span className="font-medium text-gray-800">
-                    {approval.UserName}
-                  </span>
-                  <span
-                    className={`text-sm ${approval.Status.toLowerCase() === "approved"
-                      ? "text-green-500"
-                      : approval.Status.toLowerCase() === "rejected"
-                        ? "text-red-500"
-                        : "text-yellow-500"
-                      }`}
-                  >
-                    {approval.Status}
-                  </span>
-                </div>
-                {approval.Comments && (
-                  <p className="text-sm text-gray-600 mt-2">
-                    {approval.Comments}
-                  </p>
-                )}
-                <div className="text-xs text-gray-400 mt-2">
-                  <p>Level: {approval.ApprovalLevel}</p>
-                  <p>Date: {new Date(approval.CreatedDate).toLocaleString()}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="p-4">
-          <h2 className="font-semibold mb-4 text-gray-800 mt-6">Comments</h2>
-          <div className="space-y-4">
-            {documentComments.length > 0 ? (
-              documentComments.map((comment, index) => (
-                <div key={index} className="bg-white p-3 rounded-lg shadow-sm">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-medium text-gray-800">
-                      {comment.User?.FirstName || "Unknown User"}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(comment.CreatedDate).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-2">
-                    {comment.CommentText}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-gray-600">No comments available.</p>
-            )}
-          </div>
-        </div>
-      </div>
-      <div>
-        {showDialog && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-            <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
-              <h3 className="text-lg font-medium text-gray-800 mb-4">Signature Type</h3>
-              <div className="flex gap-2 mb-4">
-                {['draw', 'text', 'image'].map(type => (
-                  <label
-                    key={type}
-                    className={`flex-1 cursor-pointer p-3 border rounded-md transition-all ${signatureType === type ? 'border-blue-500 bg-blue-100' : 'border-gray-300'}`}
-                  >
-                    <input
-                      type="radio"
-                      name="signatureType"
-                      value={type}
-                      checked={signatureType === type}
-                      onChange={() => setSignatureType(type)}
-                      className="hidden"
-                    />
-                    <div className="flex flex-col items-center">
-                      <div className="text-2xl mb-1">
-                        {type === "draw" ? (
-                          <PencilIcon className="w-6 h-6 text-gray-700" />
-                        ) : type === "text" ? (
-                          <ChatBubbleLeftIcon className="w-6 h-6 text-gray-700" />
-                        ) : (
-                          <PhotoIcon className="w-6 h-6 text-gray-700" />
-                        )}
-                      </div>
-                      <span className="capitalize">{type}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <div className="space-y-4">
-                {signatureType === "draw" && (
-                  <div className="border p-3 rounded-md">
-                    <canvas ref={canvasRef} className="w-full h-40 border"></canvas>
-                  </div>
-                )}
-                {signatureType === "text" && (
-                  <div>
-                    <input
-                      type="text"
-                      value={textSignature}
-                      onChange={(e) => setTextSignature(e.target.value)}
-                      placeholder="Enter your signature"
-                      className="w-full p-2 border rounded-md"
-                      style={{ fontFamily: fontLoaded ? signatureFont : "cursive", fontSize: `${fontSize}px`, color: fontColor }}
-                    />
-                    <div className="flex justify-between items-center mt-2">
-                      <input type="range" min="12" max="48" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full" />
-                      <span>{fontSize}px</span>
-                    </div>
-                    <div className="flex items-center mb-2">
-                      <label className="min-w-[60px] mr-2 font-bold">Color:</label>
-                      <div className="flex items-center gap-2">
-                        {colorOptions.map((color) => (
-                          <button
-                            key={color.value}
-                            className={`w-6 h-6 rounded-full border-2 ${fontColor === color.value ? "border-black" : "border-transparent"
-                              }`}
-                            style={{ backgroundColor: color.value }}
-                            onClick={() => setFontColor(color.value)}
-                            title={color.label}
-                          />
-                        ))}
-                        <input
-                          type="color"
-                          value={fontColor}
-                          onChange={(e) => setFontColor(e.target.value)}
-                          className="w-8 h-8 p-0 border border-gray-300 rounded-md cursor-pointer"
-                        />
-                      </div>
-                    </div>
-
-                  </div>
-
-                )}
-                {signatureType === "image" && (
-                  <div className="flex flex-col items-center">
-                    <button onClick={() => fileInputRef.current.click()} className="bg-teal-500 text-white px-4 py-2 rounded-md">Upload Signature Image</button>
-                    <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
-                  </div>
-                )}
-              </div>
-              <div className="flex justify-end mt-4 gap-2">
-                <button onClick={clearSignature} className="bg-orange-500 text-white px-4 py-2 rounded-md">Clear</button>
-                <button onClick={saveSignature} className="bg-blue-500 text-white px-4 py-2 rounded-md" disabled={!textSignature.trim()}>Save Signature</button>
-                <button onClick={() => setShowDialog(false)} className="bg-gray-500 text-white px-4 py-2 rounded-md">Close</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 };
