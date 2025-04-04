@@ -663,20 +663,20 @@ const DocumentsDetails = () => {
                   imageWidth *= ratio;
                 }
 
-                // FIXED: Correct signature positioning
-                // Convert UI top-left coordinates to PDF bottom-left coordinates
-                // Then adjust for image height to place the top of the image at the clicked position
-                const drawY = height - yPercentage * height - imageHeight;
-
-                console.log(
-                  `Drawing at (${x}, ${drawY}) with size ${imageWidth}x${imageHeight}`
-                );
+                // Convert UI coordinates to PDF coordinates
+                // UI coordinates are top-left based, PDF coordinates are bottom-left based
+                const pdfX = (position.x / 100) * width;
+                const pdfY = height - (position.y / 100) * height - imageHeight;
 
                 // Ensure signature stays within page bounds
-                const finalX = Math.max(0, Math.min(width - imageWidth, x));
+                const finalX = Math.max(0, Math.min(width - imageWidth, pdfX));
                 const finalY = Math.max(
                   0,
-                  Math.min(height - imageHeight, drawY)
+                  Math.min(height - imageHeight, pdfY)
+                );
+
+                console.log(
+                  `Drawing signature at PDF coordinates: (${finalX}, ${finalY}) with size ${imageWidth}x${imageHeight}`
                 );
 
                 page.drawImage(image, {
@@ -689,19 +689,24 @@ const DocumentsDetails = () => {
                 return {
                   ...signature,
                   status:
-                    finalX === x && finalY === drawY ? "added" : "adjusted",
+                    finalX === pdfX && finalY === pdfY ? "added" : "adjusted",
                 };
               } else if (type === "text") {
                 // Handle text signature
                 const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
                 const fontSize = style?.fontSize || 16;
 
-                // FIXED: Text positioning - no need to adjust for height
-                const textY = height - yPercentage * height;
+                // Convert UI coordinates to PDF coordinates for text
+                const pdfX = (position.x / 100) * width;
+                const pdfY = height - (position.y / 100) * height;
+
+                console.log(
+                  `Drawing text at PDF coordinates: (${pdfX}, ${pdfY})`
+                );
 
                 page.drawText(data, {
-                  x: x,
-                  y: textY,
+                  x: pdfX,
+                  y: pdfY,
                   size: fontSize,
                   font,
                   color: rgb(0, 0, 0),
@@ -888,9 +893,16 @@ const DocumentsDetails = () => {
     if (isMarkingPosition) {
       const container = documentContainerRef.current;
       const rect = container.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
 
+      // Get the click position relative to the container
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      // Convert to percentage of container size
+      const x = (clickX / rect.width) * 100;
+      const y = (clickY / rect.height) * 100;
+
+      console.log(`Clicked at: ${x}%, ${y}%`);
       setMarkedPosition({ x, y });
       setIsMarkingPosition(false);
       setShowSignatureDialog(true);
@@ -966,24 +978,6 @@ const DocumentsDetails = () => {
   const handleDeleteSignature = (id) => {
     setSignatures(signatures.filter((sig) => sig.id !== id));
     toast.success("Signature removed");
-  };
-
-  const PositionMarker = ({ position }) => {
-    return (
-      <div
-        className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-30 w-[200px] h-[100px]"
-        style={{
-          left: `${position.x}%`,
-          top: `${position.y}%`,
-          transform: "translate(-50%, -50%)",
-          pointerEvents: "none",
-        }}
-      >
-        <div className="text-center text-blue-600 mt-8">
-          Signature will appear here
-        </div>
-      </div>
-    );
   };
 
   const getStatusColor = (status) => {
@@ -1085,74 +1079,64 @@ const DocumentsDetails = () => {
                     className="shadow-lg bg-white"
                   />
                   {isMarkingPosition && markedPosition && (
-                    <PositionMarker position={markedPosition} />
+                    <div
+                      className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-30 w-[200px] h-[100px]"
+                      style={{
+                        left: `${markedPosition.x}%`,
+                        top: `${markedPosition.y}%`,
+                        transform: "translate(-50%, -50%)",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <div className="text-center text-blue-600 mt-8">
+                        Signature will appear here
+                      </div>
+                    </div>
                   )}
                   {signatures.map((signature) => (
-                    <Draggable
+                    <div
                       key={signature.id}
-                      defaultPosition={{
-                        x: signature.position.x,
-                        y: signature.position.y,
+                      className="absolute"
+                      style={{
+                        left: `${signature.position.x}%`,
+                        top: `${signature.position.y}%`,
+                        transform: "translate(-50%, -50%)",
                       }}
-                      onStop={(e, data) => {
-                        const updatedSignatures = signatures.map((sig) => {
-                          if (sig.id === signature.id) {
-                            return {
-                              ...sig,
-                              position: { x: data.x, y: data.y },
-                            };
-                          }
-                          return sig;
-                        });
-                        setSignatures(updatedSignatures);
-                      }}
-                      bounds="parent"
                     >
-                      <div className="absolute cursor-move group">
-                        {signature.type === "draw" ||
-                        signature.type === "image" ? (
-                          <img
-                            src={signature.data}
-                            alt="signature"
-                            className="max-w-[200px] max-h-[100px]"
-                            style={{ transform: `scale(${scale})` }}
-                          />
-                        ) : (
-                          <div
-                            className="text-signature"
-                            style={{
-                              fontFamily:
-                                signature.style?.fontFamily || "cursive",
-                              fontSize: `${signature.style?.fontSize || 24}px`,
-                              color: signature.style?.color || "#000000",
-                              transform: `scale(${scale})`,
-                            }}
-                          >
-                            {signature.data}
-                          </div>
-                        )}
-                        <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Handle edit if needed
-                            }}
-                            className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                          >
-                            <HiPencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteSignature(signature.id);
-                            }}
-                            className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                          >
-                            <HiTrash className="w-4 h-4" />
-                          </button>
+                      {signature.type === "draw" ||
+                      signature.type === "image" ? (
+                        <img
+                          src={signature.data}
+                          alt="signature"
+                          className="max-w-[200px] max-h-[100px]"
+                          style={{ transform: `scale(${scale})` }}
+                        />
+                      ) : (
+                        <div
+                          className="text-signature"
+                          style={{
+                            fontFamily:
+                              signature.style?.fontFamily || "cursive",
+                            fontSize: `${signature.style?.fontSize || 24}px`,
+                            color: signature.style?.color || "#000000",
+                            transform: `scale(${scale})`,
+                          }}
+                        >
+                          {signature.data}
                         </div>
+                      )}
+                      <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSignature(signature.id);
+                          }}
+                          className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        >
+                          <HiTrash className="w-4 h-4" />
+                        </button>
                       </div>
-                    </Draggable>
+                    </div>
                   ))}
                 </div>
               ))}
@@ -1164,69 +1148,47 @@ const DocumentsDetails = () => {
                 filePath={documentData.FilePath}
               />
               {signatures.map((signature) => (
-                <Draggable
+                <div
                   key={signature.id}
-                  defaultPosition={{
-                    x: signature.position.x,
-                    y: signature.position.y,
+                  className="absolute"
+                  style={{
+                    left: `${signature.position.x}%`,
+                    top: `${signature.position.y}%`,
+                    transform: "translate(-50%, -50%)",
                   }}
-                  onStop={(e, data) => {
-                    const updatedSignatures = signatures.map((sig) => {
-                      if (sig.id === signature.id) {
-                        return {
-                          ...sig,
-                          position: { x: data.x, y: data.y },
-                        };
-                      }
-                      return sig;
-                    });
-                    setSignatures(updatedSignatures);
-                  }}
-                  bounds="parent"
                 >
-                  <div className="absolute cursor-move group">
-                    {signature.type === "draw" || signature.type === "image" ? (
-                      <img
-                        src={signature.data}
-                        alt="signature"
-                        className="max-w-[200px] max-h-[100px]"
-                        style={{ transform: `scale(${scale})` }}
-                      />
-                    ) : (
-                      <div
-                        className="text-signature"
-                        style={{
-                          fontFamily: signature.style?.fontFamily || "cursive",
-                          fontSize: `${signature.style?.fontSize || 24}px`,
-                          color: signature.style?.color || "#000000",
-                          transform: `scale(${scale})`,
-                        }}
-                      >
-                        {signature.data}
-                      </div>
-                    )}
-                    <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Handle edit if needed
-                        }}
-                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      >
-                        <HiPencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSignature(signature.id);
-                        }}
-                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      >
-                        <HiTrash className="w-4 h-4" />
-                      </button>
+                  {signature.type === "draw" || signature.type === "image" ? (
+                    <img
+                      src={signature.data}
+                      alt="signature"
+                      className="max-w-[200px] max-h-[100px]"
+                      style={{ transform: `scale(${scale})` }}
+                    />
+                  ) : (
+                    <div
+                      className="text-signature"
+                      style={{
+                        fontFamily: signature.style?.fontFamily || "cursive",
+                        fontSize: `${signature.style?.fontSize || 24}px`,
+                        color: signature.style?.color || "#000000",
+                        transform: `scale(${scale})`,
+                      }}
+                    >
+                      {signature.data}
                     </div>
+                  )}
+                  <div className="absolute -top-8 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSignature(signature.id);
+                      }}
+                      className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                    >
+                      <HiTrash className="w-4 h-4" />
+                    </button>
                   </div>
-                </Draggable>
+                </div>
               ))}
             </div>
           )}
